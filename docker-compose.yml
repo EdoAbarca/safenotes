@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  safenotes:
+    build: ./safenotes  # Asume que Dockerfile está dentro de safenotes/
+    ports:
+      - "3000:3000"
+    networks:
+      - devsecops-net
+    restart: unless-stopped
+
+  dependency-check:
+    image: owasp/dependency-check
+    volumes:
+      - ./safenotes:/src
+      - ./reports:/report
+    command: ["--project", "safenotes", "--scan", "/src", "--format", "HTML", "--out", "/report"]
+    networks:
+      - devsecops-net
+
+  trivy:
+    image: aquasec/trivy:latest
+    ports:
+      - "8081:8080"
+    volumes:
+      - trivy_cache:/root/.cache/trivy
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TRIVY_CACHE_DIR=/root/.cache/trivy
+    networks:
+      - devsecops-net
+    restart: on-failure
+
+  zap:
+    image: zaproxy/zap-weekly:latest
+    ports:
+      - "8082:8080"  # Web UI
+      - "8090:8090"  # API
+    environment:
+      - ZAP_AUTOSTART=true
+      - ZAP_PORT=8080
+      - ZAP_API_PORT=8090
+      - ZAP_API_ENABLE=true
+      - ZAP_SILENT=true
+    command: [
+      "zap.sh",
+      "-daemon",
+      "-host", "0.0.0.0",
+      "-port", "8080",
+      "-config", "api.addrs.addr.name=.*",
+      "-config", "api.addrs.addr.regex=true",
+      "-config", "api.key=a8df14b272a794e4d1d178b1ebba1bbf"
+    ]
+    volumes:
+      - zap_data:/home/zap/.ZAP/
+    networks:
+      - devsecops-net
+    restart: unless-stopped
+
+volumes:
+  trivy_cache:
+  zap_data:
+
+networks:
+  devsecops-net:
+    driver: bridge
