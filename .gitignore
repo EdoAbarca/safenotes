@@ -1,0 +1,14 @@
+# Dependency directories
+node_modules/
+
+# Optional: logs
+logs
+*.log
+npm-debug.log*
+
+# Optional: environment variables
+.env
+
+# Optional: build outputs
+dist/
+build/
