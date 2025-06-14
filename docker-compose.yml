@@ -3,10 +3,13 @@ version: '3.8'
 services:
   safenotes:
     build: ./safenotes  # Asume que Dockerfile está dentro de safenotes/
+    image: safenotes:latest  # Add this line
     ports:
       - "3000:3000"
     networks:
       - devsecops-net
+    environment:
+      - HTTP_PROXY=http://zap:8082
     restart: unless-stopped
 
   dependency-check:
@@ -14,7 +17,7 @@ services:
     volumes:
       - ./safenotes:/src
       - ./reports:/report
-    command: ["--project", "safenotes", "--scan", "/src", "--format", "HTML", "--out", "/report"]
+    command: ["--project", "safenotes", "--scan", "/src", "--format", "ALL", "--out", "/report", "--disableAssembly"]
     networks:
       - devsecops-net
 
@@ -24,38 +27,54 @@ services:
       - "8081:8080"
     volumes:
       - trivy_cache:/root/.cache/trivy
+      - ./reports:/report  # Mount local reports directory
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - TRIVY_CACHE_DIR=/root/.cache/trivy
+      - TRIVY_SKIP_DB_UPDATE=true
     networks:
       - devsecops-net
-    restart: on-failure
+    restart: no
+    depends_on:
+      - safenotes
+    command: [
+      "image",
+      "--scanners", "vuln",
+      "--severity", "CRITICAL,HIGH,MEDIUM",
+      "--ignore-unfixed",
+      "--format", "template",
+      "--template", "@/contrib/html.tpl",  # Built-in HTML template
+      "--output", "/report/trivy-report.html",
+      "safenotes:latest"
+    ]
 
   zap:
     image: zaproxy/zap-weekly:latest
     ports:
-      - "8082:8080"  # Web UI
-      - "8090:8090"  # API
+      - "8082:8082"  # Proxy + UI port interno 8082
+      - "8090:8090"  # API port interno 8090
     environment:
       - ZAP_AUTOSTART=true
-      - ZAP_PORT=8080
-      - ZAP_API_PORT=8090
-      - ZAP_API_ENABLE=true
-      - ZAP_SILENT=true
-    command: [
-      "zap.sh",
-      "-daemon",
-      "-host", "0.0.0.0",
-      "-port", "8080",
-      "-config", "api.addrs.addr.name=.*",
-      "-config", "api.addrs.addr.regex=true",
-      "-config", "api.key=a8df14b272a794e4d1d178b1ebba1bbf"
-    ]
-    volumes:
-      - zap_data:/home/zap/.ZAP/
+      - ZAP_API_KEY=a8df14b272a794e4d1d178b1ebba1bbf
+      - ZAP_PROXY_ALLOWREMOTE=true
+      - ZAP_PROXY_ALLOWLOCALHOST=true
+    command: >
+      zap.sh -daemon
+      -host 0.0.0.0
+      -port 8082
+      -config proxy.ip=0.0.0.0
+      -config proxy.port=8082
+      -config proxy.behindnat=true
+      -config network.connection.timeoutInSecs=60
+      -config api.enabled=true
+      -config api.key=$$ZAP_API_KEY
+      -config api.port=8090
+      -config api.addrs.addr.name=.*
+      -config api.addrs.addr.regex=true
     networks:
       - devsecops-net
-    restart: unless-stopped
+    depends_on:
+      - safenotes
 
 volumes:
   trivy_cache:
