@@ -48,7 +48,7 @@ services:
       "safenotes:latest"
     ]
 
-  zap:
+  zap: #TODO: Arreglar API ZAP (curl retorna 52 empty response)
     image: zaproxy/zap-weekly:latest
     ports:
       - "8082:8082"  # Proxy + UI port interno 8082
